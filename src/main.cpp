@@ -1,48 +1,58 @@
-#include "util/Logger.h"
 #include <sys/socket.h>
 #include <arpa/inet.h> 
 #include <netinet/in.h>
 #include <unistd.h>
 #include <stdio.h> 
 #include <thread>
-#include <map>
-#include <mutex>
+#include <string>
 
-std::mutex clients_mutex;
-std::map<int, std::string> clients;
-void broadcast(const std::string& message, int exclude_sockfd)
-{
-    std::lock_guard<std::mutex> lock(clients_mutex);
-    for(const auto& [fd, name] : clients)
-    {
-        if(fd != exclude_sockfd)
-        {
-            send(fd, message.c_str(), message.size(), MSG_NOSIGNAL);
-        }
-    }
-}
+#include "core/ClientManager.h"
+#include "command/CommandFactory.h"
+#include "util/Logger.h"
+
+ClientManager clients;
+CommandFactory factory;
 
 void handle_client(int client_sockfd)
 {
+    std::string pending;
     char buffer[1024];
-    while(true) 
+    bool connected  = true;
+    while(connected ) 
     {
         ssize_t n = recv(client_sockfd, buffer, sizeof(buffer), 0);
         if(n <= 0) 
         {
             break;
         }
-        std::string message = "[client " + std::to_string(client_sockfd) + "] "
-                            + std::string(buffer, n);
-        broadcast(message, client_sockfd); 
+        pending.append(buffer, n);
+        size_t pos;
+        while(connected  && (pos = pending.find('\n')) != std::string::npos)
+         {
+            std::string line = pending.substr(0, pos);
+            pending.erase(0, pos + 1);
+            if(!line.empty() && line.back() == '\r') 
+            {
+                line.pop_back();
+            }
+            if(line.empty())
+            {
+                continue;
+            }
+            auto command = factory.create(line);
+            CommandContext context{client_sockfd, clients};
+            connected  = command->execute(context);
+
+         }
     }
+    std::string name = clients.nameOf(client_sockfd);
+    clients.remove(client_sockfd);
+    if(!name.empty())
     {
-        std::lock_guard<std::mutex> lock(clients_mutex);
-        clients.erase(client_sockfd);
+        clients.broadcast("* " + name + " left the chat", client_sockfd);   
     }
-    Logger::Instance().log("Client disconnected");
-    broadcast("* client " + std::to_string(client_sockfd) + " left\n", client_sockfd);
-    close(client_sockfd);
+    Logger::Instance().log("Client disconnected, fd " + std::to_string(client_sockfd));
+    close(client_sockfd);    
 }
 int main()
 {
@@ -69,7 +79,7 @@ int main()
     if(listen(sockfd, 10) < 0)
     {
         perror("listen");
-        return false;
+        return 1;
     }
     Logger::Instance().log("Server is listening on port 8080");
     
@@ -82,11 +92,9 @@ int main()
             continue;
         }
          Logger::Instance().log("Client connected, fd " + std::to_string(client_sockfd));
-        {
-        std::lock_guard<std::mutex> lock(clients_mutex);
-        clients[client_sockfd] = ""; 
-        }
-        broadcast("* client " + std::to_string(client_sockfd) + " joined\n", client_sockfd);
+        
+        clients.add(client_sockfd);
+        clients.sendTo(client_sockfd, "* Welcome to the chat server!\n");
         std::thread(handle_client, client_sockfd).detach();
     }  
     close(sockfd);
