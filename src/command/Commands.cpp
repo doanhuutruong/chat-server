@@ -2,6 +2,7 @@
 
 #include "core/ClientManager.h"
 #include "util/Logger.h"
+#include "core/HistoryProcess.h"
 
 bool LoginCommand::execute(CommandContext& ctx)
 {
@@ -35,7 +36,9 @@ bool MessageCommand::execute(CommandContext& ctx)
         return true;
     }
     if (text_.empty()) return true;
-    ctx.clients.broadcast(name + ": " + text_, ctx.fd);
+    std::string line = name + ": " + text_;
+    ctx.clients.broadcast(line, ctx.fd);
+    ctx.history.write(line);
     return true;
 }
 

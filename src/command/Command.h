@@ -1,14 +1,15 @@
 #pragma once
 class ClientManager;
+class HistoryProcess;
 
-// Những gì một lệnh cần để làm việc.
+
 struct CommandContext
 {
-    int fd;                  // client gửi lệnh
+    int fd;                  
     ClientManager& clients;
+    HistoryProcess& history;
 };
 
-// Lớp cơ sở cho mọi lệnh (Command pattern).
 class Command
 {
 public:

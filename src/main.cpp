@@ -9,9 +9,11 @@
 #include "core/ClientManager.h"
 #include "command/CommandFactory.h"
 #include "util/Logger.h"
+#include "core/HistoryProcess.h"
 
 ClientManager clients;
 CommandFactory factory;
+HistoryProcess history("chat_history.log");
 
 void handle_client(int client_sockfd)
 {
@@ -40,8 +42,8 @@ void handle_client(int client_sockfd)
                 continue;
             }
             auto command = factory.create(line);
-            CommandContext context{client_sockfd, clients};
-            connected  = command->execute(context);
+            CommandContext ctx{client_sockfd, clients, history};
+            connected  = command->execute(ctx);
 
          }
     }
@@ -56,6 +58,10 @@ void handle_client(int client_sockfd)
 }
 int main()
 {
+    if(!history.start())
+    {
+        return 1;
+    }
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);   
     if(sockfd < 0)
     {
